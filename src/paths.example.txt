@@ -4,9 +4,9 @@
 # with # are ignored, so comment things out instead of deleting them.
 #
 # Two rules that matter:
-#   1. Every path listed here must exist. A missing path makes restic exit
-#      non-zero, which turns into a "backup failed" notification on every
-#      single run. Check with:  ls -d <path>
+#   1. Paths that do not exist are skipped with a WARNING in the log, not
+#      treated as fatal — but a stale entry means you are silently not
+#      backing something up. Check with:  ls -d <path>
 #   2. Do not nest. If you list Pictures, do not also list
 #      Pictures/Screenshots.
 #

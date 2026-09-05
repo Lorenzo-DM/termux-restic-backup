@@ -79,9 +79,15 @@ restic backup --files-from ~/.restic/paths.txt \
 
 Two rules worth internalising:
 
-**Every listed path must exist.** A missing path makes restic exit non-zero,
-which fires a "backup failed" notification on every single run, forever. A tool
-that cries wolf daily is a tool you stop reading. Check with `ls -d` first.
+**Missing paths are skipped, not fatal.** If a listed path does not exist,
+`backup.sh` leaves it out, logs a `WARNING` line and notifies you how many were
+skipped, rather than failing the whole run — a single stale entry should not
+cost you the backup of everything else. If *nothing* in the list exists, that
+does fail, loudly. Check what was skipped with:
+
+```bash
+grep WARNING ~/.restic/logs/backup.log
+```
 
 **Do not nest.** Listing both `Pictures` and `Pictures/Screenshots` costs no
 extra space — restic deduplicates — but it puts the same data in two branches

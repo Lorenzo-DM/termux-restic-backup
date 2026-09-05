@@ -64,8 +64,10 @@ fi
 
 # --- Keep the CPU awake for the whole run ---------------------------------
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
+effective_paths=""
 cleanup() {
   command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock
+  [ -n "$effective_paths" ] && rm -f "$effective_paths"
 }
 trap cleanup EXIT
 
@@ -84,12 +86,40 @@ if restic backup --help 2>&1 | grep -q -- '--retry-lock'; then
   forget_flags+=(--retry-lock 10m)
 fi
 
+# --- Pre-flight: drop paths that no longer exist --------------------------
+# A path listed in paths.txt but missing on disk makes restic exit non-zero,
+# which fails the WHOLE run — valid directories included — and fires a
+# "backup failed" notification every single time. Backing up what is there
+# and reporting what is not is far more useful than failing wholesale.
+# It lives under logs/, which excludes.txt keeps out of the repository.
+effective_paths="$(mktemp "$LOG_DIR/paths.XXXXXX")"
+kept=0
+missing=0
+while IFS= read -r entry; do
+  if [ -e "$entry" ]; then
+    printf '%s\n' "$entry" >> "$effective_paths"
+    kept=$((kept + 1))
+  else
+    log "WARNING: skipping missing path: $entry"
+    missing=$((missing + 1))
+  fi
+done < <(grep -vE '^[[:space:]]*(#|$)' "$PATHS_FILE")
+
+if [ "$kept" -eq 0 ]; then
+  log "ERROR: none of the paths in $PATHS_FILE exist — nothing to back up"
+  notify "Backup failed" "No usable paths in paths.txt — check the log"
+  exit 1
+fi
+if [ "$missing" -gt 0 ]; then
+  notify "Backup: $missing path(s) missing" "Backed up $kept of $((kept + missing)) — see the log"
+fi
+
 started_at=$(date +%s)
-log "=== backup started -> $RESTIC_REPOSITORY"
+log "=== backup started -> $RESTIC_REPOSITORY ($kept paths)"
 
 # --- Back up ---------------------------------------------------------------
 restic backup \
-  --files-from "$PATHS_FILE" \
+  --files-from "$effective_paths" \
   --exclude-file "$EXCLUDES_FILE" \
   --exclude-caches \
   --tag android \

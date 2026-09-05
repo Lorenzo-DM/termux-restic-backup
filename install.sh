@@ -223,8 +223,21 @@ step "Initialising the restic repository"
 # shellcheck source=/dev/null
 source "$CONFIG_DIR/env"
 
-if restic cat config >/dev/null 2>&1; then
-  ok "repository already initialised — leaving it alone"
+if [ -n "$(rclone lsf "${remote_name}:${remote_path}/config" 2>/dev/null)" ]; then
+  # Something is already there. Distinguish "existing repo, correct password"
+  # from "existing repo, wrong password" — otherwise restic init would fail
+  # later with a message that explains nothing.
+  if restic cat config >/dev/null 2>&1; then
+    ok "existing repository opened successfully"
+  else
+    die "A restic repository already exists at
+    ${remote_name}:${remote_path}
+    but the password you entered does not open it.
+
+    Either supply the original password, or pick a different destination
+    path. Do NOT re-initialise over it: that would strand the existing
+    backups permanently."
+  fi
 else
   restic init
   ok "repository created at $RESTIC_REPOSITORY"
@@ -298,7 +311,32 @@ if confirm "Run the first backup now? (it can take hours)"; then
   backup_pid=$!
   sleep 2
   tail -f "$CONFIG_DIR/logs/backup.log" --pid="$backup_pid" 2>/dev/null || true
-  wait "$backup_pid" && ok "first backup complete" || warn "backup exited non-zero — check the log"
+  if wait "$backup_pid"; then
+    ok "first backup complete"
+
+    # Report what actually landed in the repository. A run that "succeeds"
+    # while capturing nothing is the most misleading failure mode there is.
+    stats_json="$(restic stats latest --json 2>/dev/null || true)"
+    files="$(printf '%s' "$stats_json" | grep -o '"total_file_count":[0-9]*' | cut -d: -f2)"
+    bytes="$(printf '%s' "$stats_json" | grep -o '"total_size":[0-9]*' | cut -d: -f2)"
+    files="${files:-0}"; bytes="${bytes:-0}"
+    info "snapshot contains $files files, $(( bytes / 1024 / 1024 )) MiB"
+
+    if [ "$bytes" -lt 1048576 ]; then
+      warn "That is under 1 MiB — almost certainly not what you expected.
+
+    The usual cause is that shared storage was unreadable during the run.
+    Check it with:
+        ls /storage/emulated/0/DCIM
+    If that says 'Permission denied', run termux-setup-storage, accept the
+    dialog, and back up again with:
+        bash $CONFIG_DIR/backup.sh
+    Also look for skipped paths:
+        grep WARNING $CONFIG_DIR/logs/backup.log"
+    fi
+  else
+    warn "backup exited non-zero — check $CONFIG_DIR/logs/backup.log"
+  fi
 else
   info "Start it later with:  bash $CONFIG_DIR/backup.sh"
 fi
