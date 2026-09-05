@@ -1,0 +1,23 @@
+# What to leave out — restic --exclude-file patterns.
+# Caches, thumbnails and anything regenerable: not worth the bandwidth.
+
+**/.thumbnails
+**/.thumbnails/**
+**/.trashed-*
+**/.Trash*
+**/cache
+**/Cache
+**/*.tmp
+**/*.part
+**/*.crdownload
+**/lost+found
+
+# Unreachable on Android 11+ anyway, and regenerable.
+/storage/emulated/0/Android/data
+/storage/emulated/0/Android/obb
+
+# Never put the repository key inside the repository: you already need that
+# password to read the backup, so storing it there buys nothing. The logs
+# change on every run and would add pointless churn.
+/data/data/com.termux/files/home/.restic/password
+/data/data/com.termux/files/home/.restic/logs

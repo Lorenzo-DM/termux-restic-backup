@@ -1,0 +1,62 @@
+# What to back up — one absolute path per line.
+#
+# Directories are included recursively. Blank lines and lines starting
+# with # are ignored, so comment things out instead of deleting them.
+#
+# Two rules that matter:
+#   1. Every path listed here must exist. A missing path makes restic exit
+#      non-zero, which turns into a "backup failed" notification on every
+#      single run. Check with:  ls -d <path>
+#   2. Do not nest. If you list Pictures, do not also list
+#      Pictures/Screenshots.
+#
+# Guiding principle: back up what you cannot re-download.
+
+# --- Irreplaceable ---------------------------------------------------------
+
+/storage/emulated/0/DCIM/Camera
+/storage/emulated/0/Documents
+
+# Standard on Android 14+; check that it exists before enabling.
+# /storage/emulated/0/Recordings
+
+# A single file works too, not just directories:
+# /storage/emulated/0/MyStuff/keepass.kdbx
+
+# --- App exports -----------------------------------------------------------
+# Termux cannot read /data/data/<app>/ without root. You can only back up
+# what an app writes to shared storage, so point its export feature there.
+
+# WhatsApp media on Android 11+ (media only, not the message database):
+# /storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media
+
+# Signal: enable "Local backups" in the app first.
+# /storage/emulated/0/Signal/Backups
+
+# Obsidian vaults and other Markdown notes:
+# /storage/emulated/0/Documents/Obsidian
+
+# --- Useful ----------------------------------------------------------------
+
+/storage/emulated/0/Download
+/storage/emulated/0/Pictures
+
+# Pictures already covers screenshots. If you would rather not take all of
+# Pictures, comment the line above and uncomment this one:
+# /storage/emulated/0/Pictures/Screenshots
+
+# --- Re-downloadable: decide whether it is worth the bandwidth -------------
+
+# /storage/emulated/0/Music
+# /storage/emulated/0/Movies
+# /storage/emulated/0/Podcasts
+
+# --- SD card ---------------------------------------------------------------
+# The path contains a per-card ID. Find yours with:  ls /storage/
+# /storage/1A2B-3C4D/DCIM
+
+# --- This backup's own configuration ---------------------------------------
+# Handy for rebuilding the setup on a new phone. The password file and the
+# logs are excluded in excludes.txt, so the key never enters the repository.
+
+/data/data/com.termux/files/home/.restic
