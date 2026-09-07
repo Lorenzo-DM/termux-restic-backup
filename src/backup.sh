@@ -37,6 +37,13 @@ MIN_INTERVAL_HOURS="${MIN_INTERVAL_HOURS:-0}"
 
 MAX_LOG_BYTES="${MAX_LOG_BYTES:-2000000}"
 
+# Dead-man's switch: the push URL of an Uptime Kuma "Push" monitor, or any
+# endpoint that expects a periodic GET. Empty disables the ping. This is the
+# only check that catches the one failure nothing else can see — JobScheduler
+# never firing at all, which leaves a perfectly healthy repository quietly
+# going stale.
+HEALTHCHECK_URL="${HEALTHCHECK_URL:-}"
+
 mkdir -p "$LOG_DIR"
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE"; }
@@ -44,6 +51,23 @@ log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE"; }
 notify() {
   command -v termux-notification >/dev/null 2>&1 || return 0
   termux-notification --id restic-backup --title "$1" --content "$2" >/dev/null 2>&1
+}
+
+ping_monitor() {   # ping_monitor <up|down> <message> [duration_seconds]
+  [ -n "$HEALTHCHECK_URL" ] || return 0
+  if ! command -v curl >/dev/null 2>&1; then
+    log "WARNING: HEALTHCHECK_URL is set but curl is missing (pkg install curl)"
+    return 0
+  fi
+  local dur="${3:-}"
+  local args=(--get --data-urlencode "status=$1" --data-urlencode "msg=$2")
+  # Uptime Kuma plots this as the response time, which turns its chart into a
+  # history of how long the backup takes.
+  [ -n "$dur" ] && args+=(--data-urlencode "ping=$(( dur * 1000 ))")
+  # An unreachable monitor — no Wi-Fi, homelab down, phone on a foreign
+  # network — is not a backup failure, so this never changes the exit status.
+  curl -fsS -m 15 --retry 2 "${args[@]}" "$HEALTHCHECK_URL" >/dev/null 2>&1 \
+    || log "WARNING: could not reach HEALTHCHECK_URL"
 }
 
 # --- Refuse to run twice at once ------------------------------------------
@@ -108,6 +132,7 @@ done < <(grep -vE '^[[:space:]]*(#|$)' "$PATHS_FILE")
 if [ "$kept" -eq 0 ]; then
   log "ERROR: none of the paths in $PATHS_FILE exist — nothing to back up"
   notify "Backup failed" "No usable paths in paths.txt — check the log"
+  ping_monitor down "no usable paths in paths.txt"
   exit 1
 fi
 if [ "$missing" -gt 0 ]; then
@@ -131,6 +156,7 @@ status=$?
 if [ $status -ne 0 ]; then
   log "ERROR: restic backup exited with status $status"
   notify "Backup failed" "restic exited with $status — see ~/.restic/logs/backup.log"
+  ping_monitor down "restic backup exited with $status"
   exit $status
 fi
 
@@ -153,7 +179,9 @@ restic "${forget_args[@]}" >> "$LOG_FILE" 2>&1 \
 
 date +%s > "$STAMP_FILE"
 
-log "=== backup finished in $(( $(date +%s) - started_at ))s"
+elapsed=$(( $(date +%s) - started_at ))
+log "=== backup finished in ${elapsed}s"
+ping_monitor up "$kept paths, $missing missing, ${elapsed}s" "$elapsed"
 
 # --- Rotate the log --------------------------------------------------------
 if [ "$(stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)" -gt "$MAX_LOG_BYTES" ]; then

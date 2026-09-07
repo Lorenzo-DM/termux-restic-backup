@@ -156,6 +156,32 @@ tools/maintenance.sh restore latest ~/restored
 Retention defaults to 7 daily, 4 weekly, 12 monthly and 3 yearly snapshots.
 Override any of them in `~/.restic/env`.
 
+## Monitoring
+
+The failure that matters is not a backup that breaks — that one notifies you.
+It is a job that quietly stops firing, because Android decided Termux was not
+worth waking. The repository stays perfectly healthy; it just stops growing,
+and nothing tells you.
+
+Point `HEALTHCHECK_URL` at an Uptime Kuma **Push** monitor (or any endpoint
+that expects a periodic GET) and the phone reports every run:
+
+```bash
+echo 'export HEALTHCHECK_URL="https://kuma.example.org/api/push/XXXXXXXX"' \
+  >> ~/.restic/env
+```
+
+Set the monitor's heartbeat interval a few hours above the backup period — 26
+hours for the default daily job — so one late run does not page you. A
+successful run pushes `status=up` along with how long it took, which Uptime
+Kuma plots as the response time; a failed one pushes `status=down` with the
+reason, so you hear about it immediately instead of waiting for the interval
+to lapse. Skipped runs stay silent by design: the lock and `MIN_INTERVAL_HOURS`
+guards mean a backup already succeeded recently.
+
+Leave it unset and nothing is pinged. The ping never affects the backup's exit
+status — an unreachable monitor is not a backup failure.
+
 ## How the scheduling works
 
 `termux-job-scheduler` hands the job to Android's JobScheduler, which owns it

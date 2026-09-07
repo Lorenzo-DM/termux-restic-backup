@@ -51,7 +51,7 @@ ok "running inside Termux"
 step "Installing packages"
 
 pkg update -y
-pkg install -y restic rclone termux-api
+pkg install -y restic rclone termux-api curl
 ok "restic $(restic version | awk '{print $2}'), rclone $(rclone version | head -1 | awk '{print $2}')"
 
 # ---------------------------------------------------------------------------
@@ -213,6 +213,9 @@ export RCLONE_TIMEOUT="5m"
 # 1=Mon .. 7=Sun, 0 to never prune from the phone
 # export PRUNE_ON_WEEKDAY=7
 # export MIN_INTERVAL_HOURS=0
+# Push URL of an Uptime Kuma "Push" monitor (or any dead-man's switch).
+# Without it, a job that silently stops firing looks exactly like a healthy one.
+# export HEALTHCHECK_URL="https://kuma.example.org/api/push/XXXXXXXX"
 ENV
 chmod 600 "$CONFIG_DIR/env"
 ok "env written"
