@@ -139,6 +139,16 @@ if [ "$missing" -gt 0 ]; then
   notify "Backup: $missing path(s) missing" "Backed up $kept of $((kept + missing)) — see the log"
 fi
 
+# --- Clear stale locks ------------------------------------------------------
+# JobScheduler kills the job the moment its constraints stop being met — cable
+# pulled, Wi-Fi dropped — which can leave a lock behind in the repository.
+# restic normally recognises a lock of its own whose process is gone, but
+# --retry-lock would sit out its full timeout first waiting for something that
+# will never be released. Plain `unlock` removes only stale locks; never
+# --remove-all, which would also tear the lock away from maintenance running
+# on another machine.
+restic unlock >> "$LOG_FILE" 2>&1 || log "WARNING: restic unlock failed"
+
 started_at=$(date +%s)
 log "=== backup started -> $RESTIC_REPOSITORY ($kept paths)"
 
@@ -174,14 +184,28 @@ if [ "$PRUNE_ON_WEEKDAY" -ne 0 ] && [ "$(date +%u)" -eq "$PRUNE_ON_WEEKDAY" ]; t
   forget_args+=(--prune)
 fi
 
-restic "${forget_args[@]}" >> "$LOG_FILE" 2>&1 \
-  || log "WARNING: forget/prune failed with status $?"
+restic "${forget_args[@]}" >> "$LOG_FILE" 2>&1
+forget_status=$?
+maintenance_error=""
+if [ $forget_status -ne 0 ]; then
+  maintenance_error="forget/prune exited with $forget_status"
+  log "ERROR: $maintenance_error"
+fi
 
 date +%s > "$STAMP_FILE"
 
 elapsed=$(( $(date +%s) - started_at ))
 log "=== backup finished in ${elapsed}s"
-ping_monitor up "$kept paths, $missing missing, ${elapsed}s" "$elapsed"
+
+# The data is stored either way, so this is not a failed backup — but it must
+# not report green either. Retention quietly ceasing to apply is exactly how a
+# repository grows without bound while every dashboard stays reassuring.
+if [ -n "$maintenance_error" ]; then
+  notify "Backup ok, maintenance failed" "$maintenance_error — see ~/.restic/logs/backup.log"
+  ping_monitor down "backup ok ($kept paths, ${elapsed}s) but $maintenance_error"
+else
+  ping_monitor up "$kept paths, $missing missing, ${elapsed}s" "$elapsed"
+fi
 
 # --- Rotate the log --------------------------------------------------------
 if [ "$(stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)" -gt "$MAX_LOG_BYTES" ]; then

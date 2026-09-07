@@ -135,13 +135,28 @@ On the phone itself, `restic restore` works the same way once you have run
 
 ## Maintenance
 
-`forget` runs after every backup and is cheap. `prune` — which physically
-rewrites data packs on the remote — runs weekly by default, on Sundays. Over a
-slow uplink you may prefer to disable it on the phone and do it from a desktop:
+`forget` runs after every backup and is cheap: it only rewrites snapshot
+metadata. `prune` — which physically rewrites data packs on the remote — runs
+weekly by default, on Sundays. Over a slow uplink you may prefer to disable it
+on the phone and do the heavy work elsewhere:
 
 ```bash
 echo 'export PRUNE_ON_WEEKDAY=0' >> ~/.restic/env
 ```
+
+Note that the weekday trigger only fires if the job actually runs that day, and
+the job needs Wi-Fi and a charger. A few Sundays away from home in a row and
+the prune silently never happens. If you leave it enabled, check occasionally
+that it is still firing; if you turn it off, make sure whatever you hand it to
+is itself monitored.
+
+That "elsewhere" can be a desktop with `tools/maintenance.sh`, or a server-side
+orchestrator. [backrest](https://github.com/garethgeorge/backrest) can adopt
+this repository as a maintenance-only repo — no plan, just prune and check on a
+schedule — which is how the author runs it. Two cautions if you do: keep
+retention on the phone, because backrest applies its own with `--tag plan:<id>`
+and these snapshots carry no such tag; and pick a fixed maintenance window away
+from the phone's nightly run, since both hold the same repository lock.
 
 Then, from a machine with a real connection:
 
@@ -178,6 +193,13 @@ Kuma plots as the response time; a failed one pushes `status=down` with the
 reason, so you hear about it immediately instead of waiting for the interval
 to lapse. Skipped runs stay silent by design: the lock and `MIN_INTERVAL_HOURS`
 guards mean a backup already succeeded recently.
+
+There is a third state worth knowing about. If the backup succeeds but `forget`
+or `prune` afterwards does not, the push is `down` with a message that says so
+explicitly — the files are safely stored, but retention has stopped being
+applied. That is not a failed backup and needs a different response, yet it
+cannot be allowed to report green: a repository whose retention quietly stopped
+working grows without bound while every dashboard stays reassuring.
 
 Leave it unset and nothing is pinged. The ping never affects the backup's exit
 status — an unreachable monitor is not a backup failure.
@@ -265,6 +287,12 @@ saver set to "No restrictions".
 
 **"backup failed" on every run.** Almost always a path in `paths.txt` that does
 not exist. Find it with the `--dry-run` command above.
+
+**"repository is already locked".** A previous run was killed mid-flight, most
+likely because the charger came out. `backup.sh` clears stale locks on every
+run, so this resolves itself; if it persists, something really is holding the
+lock — check that no maintenance is running elsewhere before reaching for
+`restic unlock --remove-all`.
 
 **pCloud listing fails after authorising.** European accounts live on a
 different endpoint: `rclone config` → edit the remote → advanced options →
