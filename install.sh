@@ -102,6 +102,8 @@ need_config=yes
 
 if [ -n "$existing_remotes" ]; then
   info "rclone already knows about these remotes:"
+  # rclone prints one remote per line: the word splitting is deliberate.
+  # shellcheck disable=SC2086
   printf '      %s\n' $existing_remotes
   confirm "Use one of them?" && need_config=no
 fi

@@ -89,6 +89,8 @@ fi
 # --- Keep the CPU awake for the whole run ---------------------------------
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 effective_paths=""
+# Invoked by the EXIT trap below, which shellcheck does not follow.
+# shellcheck disable=SC2329
 cleanup() {
   command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock
   [ -n "$effective_paths" ] && rm -f "$effective_paths"
