@@ -44,8 +44,9 @@ bash ~/termux-restic-backup/install.sh
 The installer runs start to finish in a single session. It installs the
 packages, verifies Termux:API actually answers, requests storage access, walks
 you through `rclone config` inline, asks for a repository password, creates the
-repository, and registers the daily job. Re-running it is safe: it never
-overwrites an existing password, repository, or customised file list.
+repository, asks how often it should run, and registers the job. Re-running it
+is safe: it never overwrites an existing password, repository, or customised
+file list — the cadence you chose included.
 
 Two things Android will not let a script do on your behalf, so do them by hand
 afterwards — the installer reminds you:
@@ -136,19 +137,21 @@ On the phone itself, `restic restore` works the same way once you have run
 ## Maintenance
 
 `forget` runs after every backup and is cheap: it only rewrites snapshot
-metadata. `prune` — which physically rewrites data packs on the remote — runs
-weekly by default, on Sundays. Over a slow uplink you may prefer to disable it
-on the phone and do the heavy work elsewhere:
+metadata. `prune` — which physically rewrites data packs on the remote — is the
+expensive one, so it keeps a clock of its own: it runs when `PRUNE_EVERY_DAYS`
+have passed since the last prune that finished, whatever the backup cadence
+happens to be. The installer sets it to 7 for a daily job and stretches it for
+anything slower. A prune that fails does not reset the clock, so the next run
+retries it instead of deferring it by another full interval.
+
+Over a slow uplink you may prefer to keep it off the phone entirely and do the
+heavy work elsewhere:
 
 ```bash
-echo 'export PRUNE_ON_WEEKDAY=0' >> ~/.restic/env
+echo 'export PRUNE_EVERY_DAYS=0' >> ~/.restic/env
 ```
 
-Note that the weekday trigger only fires if the job actually runs that day, and
-the job needs Wi-Fi and a charger. A few Sundays away from home in a row and
-the prune silently never happens. If you leave it enabled, check occasionally
-that it is still firing; if you turn it off, make sure whatever you hand it to
-is itself monitored.
+If you turn it off, make sure whatever you hand it to is itself monitored.
 
 That "elsewhere" can be a desktop with `tools/maintenance.sh`, or a server-side
 orchestrator. [backrest](https://github.com/garethgeorge/backrest) can adopt
@@ -169,7 +172,10 @@ tools/maintenance.sh restore latest ~/restored
 ```
 
 Retention defaults to 7 daily, 4 weekly, 12 monthly and 3 yearly snapshots.
-Override any of them in `~/.restic/env`.
+Override any of them in `~/.restic/env`. Note that restic counts days that have
+a snapshot, not calendar days: on a weekly job `--keep-daily 7` keeps the last
+seven weekly snapshots and `--keep-weekly` adds nothing on top. If you back up
+less often than daily, move the weight to `KEEP_WEEKLY` and `KEEP_MONTHLY`.
 
 ## Monitoring
 
@@ -186,13 +192,13 @@ echo 'export HEALTHCHECK_URL="https://kuma.example.org/api/push/XXXXXXXX"' \
   >> ~/.restic/env
 ```
 
-Set the monitor's heartbeat interval a few hours above the backup period — 26
-hours for the default daily job — so one late run does not page you. A
-successful run pushes `status=up` along with how long it took, which Uptime
-Kuma plots as the response time; a failed one pushes `status=down` with the
-reason, so you hear about it immediately instead of waiting for the interval
-to lapse. Skipped runs stay silent by design: the lock and `MIN_INTERVAL_HOURS`
-guards mean a backup already succeeded recently.
+Set the monitor's heartbeat interval comfortably above your backup period — 26
+hours for a daily job, nine days for a weekly one — so one late run does not
+page you. A successful run pushes `status=up` along with how long it took,
+which Uptime Kuma plots as the response time; a failed one pushes `status=down`
+with the reason, so you hear about it immediately instead of waiting for the
+interval to lapse. Skipped runs stay silent by design: the lock and the
+`MIN_INTERVAL_HOURS` guard mean a backup already succeeded recently.
 
 There is a third state worth knowing about. If the backup succeeds but `forget`
 or `prune` afterwards does not, the push is `down` with a message that says so
@@ -219,7 +225,7 @@ from then on. That has consequences worth knowing:
 - **Rebooting is covered** by `--persisted true`, though jobs are only restored
   after the first unlock, since the configuration lives in credential-encrypted
   storage.
-- **The 24-hour period is a floor, not an appointment.** Android batches jobs to
+- **The period is a floor, not an appointment.** Android batches jobs to
   save power, and the constraints must be satisfied. Skip a night of charging
   and the run waits for the next one rather than being lost.
 
@@ -241,9 +247,37 @@ termux-job-scheduler --script ~/.restic/backup.sh --job-id 1001 \
 tail -20 ~/.restic/logs/backup.log
 ```
 
-A log line from a moment you were not touching the phone is the proof. Then
-re-run the installer, or the same command with `--period-ms 86400000`, to
-restore the daily cadence.
+A log line from a moment you were not touching the phone is the proof. Then put
+your real cadence back with the command below.
+
+## Changing the schedule
+
+The installer asks how often to run and records the answer in `~/.restic/env`
+as `BACKUP_PERIOD_HOURS`, so re-running it keeps your choice instead of
+resetting you to daily. To change the cadence without re-running it, register
+the job again with the same `--job-id` — that replaces the existing job rather
+than adding a second one:
+
+```bash
+# weekly
+termux-job-scheduler --script ~/.restic/backup.sh --job-id 1001 \
+  --period-ms 604800000 --persisted true --network unmetered \
+  --charging true --battery-not-low true --storage-not-low true
+
+sed -i 's/^export BACKUP_PERIOD_HOURS=.*/export BACKUP_PERIOD_HOURS=168/' \
+  ~/.restic/env
+```
+
+`--period-ms` is milliseconds: 86400000 is a day, 604800000 a week. Pass every
+flag each time — anything you leave out is not carried over from the previous
+registration, and dropping `--charging true` is how you end up backing up on
+battery.
+
+That `sed` line changes nothing on its own: the cadence lives in Android's
+JobScheduler, and `BACKUP_PERIOD_HOURS` only records it, for the next installer
+run and for your own reference. Two settings do want revisiting when the
+cadence changes, and neither adjusts itself: `PRUNE_EVERY_DAYS` and, if you use
+one, the heartbeat interval of your monitor.
 
 ## Security model
 
@@ -296,9 +330,10 @@ lock — check that no maintenance is running elsewhere before reaching for
 
 **Listing the remote fails right after authorising.** Several providers put
 accounts on region-specific endpoints, and rclone defaults to the wrong one.
-Check your backend's page under [rclone.org/overview](https://rclone.org/overview/)
-for a `hostname`, `region` or `endpoint` setting, then `rclone config` → edit
-the remote → advanced options.
+Check your backend's page under
+[rclone.org/overview](https://rclone.org/overview/) for a `hostname`, `region`
+or `endpoint` setting, then `rclone config` → edit the remote → advanced
+options.
 
 ## Uninstalling
 

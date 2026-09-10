@@ -16,6 +16,7 @@ LOG_DIR="$CONFIG_DIR/logs"
 LOG_FILE="$LOG_DIR/backup.log"
 LOCK_FILE="$CONFIG_DIR/backup.lock"
 STAMP_FILE="$CONFIG_DIR/last-success"
+PRUNE_STAMP_FILE="$CONFIG_DIR/last-prune"
 PATHS_FILE="$CONFIG_DIR/paths.txt"
 EXCLUDES_FILE="$CONFIG_DIR/excludes.txt"
 
@@ -26,10 +27,25 @@ KEEP_WEEKLY="${KEEP_WEEKLY:-4}"
 KEEP_MONTHLY="${KEEP_MONTHLY:-12}"
 KEEP_YEARLY="${KEEP_YEARLY:-3}"
 
-# Pruning rewrites data packs on the remote: slow and bandwidth-hungry.
-# 1=Mon ... 7=Sun. Set to 0 to never prune from the phone and run
+# Pruning rewrites data packs on the remote: slow and bandwidth-hungry, so it
+# runs on its own clock rather than on every backup. Days to wait after a
+# successful prune before the next one. 0 never prunes from the phone — run
 # `tools/maintenance.sh prune` from a desktop instead.
-PRUNE_ON_WEEKDAY="${PRUNE_ON_WEEKDAY:-7}"
+PRUNE_EVERY_DAYS="${PRUNE_EVERY_DAYS:-7}"
+
+# PRUNE_ON_WEEKDAY pinned pruning to a fixed weekday, which silently never
+# fired for anyone whose job ran less often than daily. Honour the one value
+# that was unambiguous — 0, "never from the phone" — rather than quietly
+# turning pruning back on for someone who had deliberately switched it off.
+obsolete_prune_setting=""
+if [ -n "${PRUNE_ON_WEEKDAY:-}" ]; then
+  if [ "$PRUNE_ON_WEEKDAY" = 0 ]; then
+    PRUNE_EVERY_DAYS=0
+    obsolete_prune_setting="PRUNE_ON_WEEKDAY=0 is obsolete; it still disables pruning, but set PRUNE_EVERY_DAYS=0 instead"
+  else
+    obsolete_prune_setting="PRUNE_ON_WEEKDAY is obsolete and ignored; pruning now runs every ${PRUNE_EVERY_DAYS} day(s) — see PRUNE_EVERY_DAYS"
+  fi
+fi
 
 # Skip the run if the last successful backup is younger than this many hours.
 # 0 disables the check. Useful if you register more than one trigger.
@@ -69,6 +85,8 @@ ping_monitor() {   # ping_monitor <up|down> <message> [duration_seconds]
   curl -fsS -m 15 --retry 2 "${args[@]}" "$HEALTHCHECK_URL" >/dev/null 2>&1 \
     || log "WARNING: could not reach HEALTHCHECK_URL"
 }
+
+[ -n "$obsolete_prune_setting" ] && log "WARNING: $obsolete_prune_setting"
 
 # --- Refuse to run twice at once ------------------------------------------
 exec 9>"$LOCK_FILE"
@@ -182,9 +200,31 @@ forget_args=(forget
   --keep-yearly  "$KEEP_YEARLY"
   "${forget_flags[@]}")
 
-if [ "$PRUNE_ON_WEEKDAY" -ne 0 ] && [ "$(date +%u)" -eq "$PRUNE_ON_WEEKDAY" ]; then
-  log "weekly prune enabled for this run"
-  forget_args+=(--prune)
+# Elapsed days, not a weekday: a fixed weekday only ever comes round for a job
+# that runs daily, and Android is free to shift any run by hours anyway.
+prune_stamp=0
+if [ -f "$PRUNE_STAMP_FILE" ]; then
+  prune_stamp="$(cat "$PRUNE_STAMP_FILE" 2>/dev/null)"
+  # An empty or corrupted stamp counts as no stamp: a prune that can never be
+  # scheduled again is precisely the failure this replaced.
+  case "${prune_stamp:-x}" in *[!0-9]*) prune_stamp=0 ;; esac
+fi
+
+prune_now=no
+if [ "$PRUNE_EVERY_DAYS" -gt 0 ]; then
+  if [ "$prune_stamp" -eq 0 ]; then
+    # First run: the initial upload is the heaviest there will ever be and has
+    # nothing to prune yet. Start the clock instead.
+    date +%s > "$PRUNE_STAMP_FILE"
+    log "prune clock started; first prune in $PRUNE_EVERY_DAYS day(s)"
+  else
+    prune_age_days=$(( ( $(date +%s) - prune_stamp ) / 86400 ))
+    if [ "$prune_age_days" -ge "$PRUNE_EVERY_DAYS" ]; then
+      prune_now=yes
+      log "prune due: $prune_age_days day(s) since the last one"
+      forget_args+=(--prune)
+    fi
+  fi
 fi
 
 restic "${forget_args[@]}" >> "$LOG_FILE" 2>&1
@@ -193,6 +233,10 @@ maintenance_error=""
 if [ $forget_status -ne 0 ]; then
   maintenance_error="forget/prune exited with $forget_status"
   log "ERROR: $maintenance_error"
+elif [ "$prune_now" = yes ]; then
+  # Only a prune that actually finished resets the clock. A failed one is
+  # retried on the next run rather than deferred by another full interval.
+  date +%s > "$PRUNE_STAMP_FILE"
 fi
 
 date +%s > "$STAMP_FILE"
