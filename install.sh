@@ -113,19 +113,22 @@ if [ "$need_config" = yes ]; then
 
     rclone's interactive configuration will open next. Quick reference:
 
-      pCloud     storage type: pcloud
-                 leave client_id and client_secret empty
-                 answer "y" to "Use auto config?" — rclone prints a link,
-                 open it in your phone's browser and approve there
-                 EU accounts: set hostname to eapi.pcloud.com in the
-                 advanced options if listing fails afterwards
+      Consumer drives  storage types such as drive, onedrive, dropbox, box
+                       leave client_id and client_secret empty
+                       answer "y" to "Use auto config?" — rclone prints a
+                       link, open it in your phone's browser, approve there
 
-      Nextcloud  storage type: webdav
-                 url:    https://your.domain/remote.php/dav/files/USERNAME/
-                 vendor: nextcloud
-                 pass:   an app password, not your account password
+      Object storage   storage type: s3
+                       provider: AWS, Backblaze B2, Wasabi, Minio, ...
+                       access key and secret come from the provider's console
 
-    Any of rclone's other backends works too. Pick "q" to quit when done.
+      Nextcloud        storage type: webdav
+                       url:    https://your.domain/remote.php/dav/files/USERNAME/
+                       vendor: nextcloud
+                       pass:   an app password, not your account password
+
+    Any of rclone's other backends works too — see rclone.org/overview for
+    the settings a particular one wants. Pick "q" to quit when done.
 
 GUIDE
   read -rp "    Press ENTER to launch rclone config... "

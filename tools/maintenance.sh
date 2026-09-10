@@ -8,12 +8,12 @@
 # Requires restic and rclone on this machine, with the same rclone remote
 # configured and the same repository password.
 #
-#   export RESTIC_REPOSITORY="rclone:pcloud:Backup/phone"
+#   export RESTIC_REPOSITORY="rclone:remote:Backup/phone"
 #   export RESTIC_PASSWORD_FILE="$HOME/.config/restic/phone-password"
 #
 set -euo pipefail
 
-: "${RESTIC_REPOSITORY:?set RESTIC_REPOSITORY, e.g. rclone:pcloud:Backup/phone}"
+: "${RESTIC_REPOSITORY:?set RESTIC_REPOSITORY, e.g. rclone:remote:Backup/phone}"
 : "${RESTIC_PASSWORD_FILE:?set RESTIC_PASSWORD_FILE to a file holding the password}"
 export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
 

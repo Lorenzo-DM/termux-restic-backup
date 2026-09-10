@@ -14,7 +14,7 @@ One interactive installer, then it looks after itself.
 | **Versioned** | Every run is a snapshot. Restore yesterday's copy of a file you ruined today. |
 | **Lightweight** | Two Go binaries. No daemon, no JVM, no persistent service. |
 | **Free software** | restic BSD-2, rclone MIT, Termux GPLv3, this repository MIT. |
-| **Any cloud** | Anything rclone speaks: pCloud, Nextcloud, S3, Backblaze B2, Google Drive, SFTP, and [70+ more](https://rclone.org/overview/). |
+| **Any cloud** | Anything rclone speaks: S3, Backblaze B2, Google Drive, Dropbox, OneDrive, Nextcloud, SFTP, and [70+ more](https://rclone.org/overview/). |
 
 ## Prerequisites
 
@@ -118,7 +118,7 @@ than discovering a problem on the worst day of your year.
 From a desktop, browse everything as a filesystem:
 
 ```bash
-export RESTIC_REPOSITORY="rclone:pcloud:Backup/phone"
+export RESTIC_REPOSITORY="rclone:remote:Backup/phone"   # your rclone remote name
 export RESTIC_PASSWORD_FILE=~/.config/restic/phone-password
 tools/maintenance.sh mount        # then open /tmp/phone-backup
 ```
@@ -294,9 +294,11 @@ run, so this resolves itself; if it persists, something really is holding the
 lock — check that no maintenance is running elsewhere before reaching for
 `restic unlock --remove-all`.
 
-**pCloud listing fails after authorising.** European accounts live on a
-different endpoint: `rclone config` → edit the remote → advanced options →
-set `hostname` to `eapi.pcloud.com`.
+**Listing the remote fails right after authorising.** Several providers put
+accounts on region-specific endpoints, and rclone defaults to the wrong one.
+Check your backend's page under [rclone.org/overview](https://rclone.org/overview/)
+for a `hostname`, `region` or `endpoint` setting, then `rclone config` → edit
+the remote → advanced options.
 
 ## Uninstalling
 
