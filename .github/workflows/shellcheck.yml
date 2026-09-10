@@ -10,9 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Lint
-        # The scripts target Termux's bash, which is not on the runner, so
-        # check them as bash explicitly rather than trusting the shebang.
-        run: shellcheck -s bash install.sh uninstall.sh src/backup.sh tools/maintenance.sh
+        # Pinned: shellcheck's info-level checks change between releases and
+        # every finding fails the build, so an unpinned version breaks CI on
+        # its own. The scripts target Termux's bash, which is not on the
+        # runner, so check them as bash explicitly, not via the shebang.
+        run: >
+          docker run --rm -v "$PWD:/mnt" koalaman/shellcheck:v0.11.0
+          -s bash install.sh uninstall.sh src/backup.sh tools/maintenance.sh
