@@ -104,6 +104,36 @@ Back up what you cannot re-download. Camera photos, scanned documents, voice
 memos and app exports are irreplaceable. Streamed music and downloaded films
 are dead weight that costs hours of upload and nothing at restore time.
 
+## Running a backup by hand
+
+The schedule will get there, but sometimes you want it now — right before
+leaving on a trip, say. From a terminal:
+
+```bash
+bash ~/.restic/backup.sh
+```
+
+Or from the home screen, without opening Termux at all. The installer drops
+two shortcuts into the directories Termux:Widget serves its entries from:
+
+- `~/.shortcuts/tasks/backup-now.sh` — starts a backup in the background. A
+  toast confirms it started; a failure reports itself with a notification.
+  Success and skip stay silent, like every other run.
+- `~/.shortcuts/backup-now-log.sh` — opens a Termux session that follows the
+  live log until the run ends, SKIP lines included. The surest way to watch
+  what a manual run actually did.
+
+Long-press the launcher, add the *Termux:Widget* widget and pick either entry.
+The widget app itself comes from the same source as Termux — F-Droid with
+F-Droid, GitHub with GitHub — for the same signature reasons as Termux:API.
+The shortcut files are harmless if you never install it.
+
+Manual runs are first-class citizens: they take the same lock, so a tap while
+a scheduled backup is running cannot start a second one, and the run counts
+for retention and the prune clock like any other. If you set
+`MIN_INTERVAL_HOURS` above zero, it gates manual runs too — a tap inside the
+window is skipped, not silently dropped without a trace: the log says so.
+
 ## What it cannot reach
 
 Without root, Termux cannot read another app's private storage under
