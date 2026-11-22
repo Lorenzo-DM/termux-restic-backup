@@ -12,7 +12,7 @@ set -euo pipefail
 CONFIG_DIR="$HOME/.restic"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)/src"
 JOB_ID=1001
-DEFAULT_PERIOD_MS=86400000     # 24 hours
+DEFAULT_PERIOD_HOURS=24        # daily
 
 bold=$'\033[1m'; blue=$'\033[1;34m'; yellow=$'\033[1;33m'
 red=$'\033[1;31m'; green=$'\033[1;32m'; off=$'\033[0m'
@@ -191,7 +191,13 @@ fi
 # ---------------------------------------------------------------------------
 step "Writing the environment file"
 
+previous_period_hours=""
+
 if [ -f "$CONFIG_DIR/env" ]; then
+  # env is rewritten from scratch below, so anything not read back here is
+  # reset to the default — a cadence the user deliberately changed included.
+  previous_period_hours="$(sed -n 's/^export BACKUP_PERIOD_HOURS=\([0-9]*\).*/\1/p' \
+                             "$CONFIG_DIR/env" | tail -1)"
   cp "$CONFIG_DIR/env" "$CONFIG_DIR/env.bak"
   info "previous env backed up to env.bak"
 fi
@@ -215,8 +221,6 @@ export RCLONE_TIMEOUT="5m"
 # export KEEP_WEEKLY=4
 # export KEEP_MONTHLY=12
 # export KEEP_YEARLY=3
-# 1=Mon .. 7=Sun, 0 to never prune from the phone
-# export PRUNE_ON_WEEKDAY=7
 # export MIN_INTERVAL_HOURS=0
 # Push URL of an Uptime Kuma "Push" monitor (or any dead-man's switch).
 # Without it, a job that silently stops firing looks exactly like a healthy one.
@@ -252,12 +256,55 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-step "Scheduling the daily job"
+step "Scheduling the job"
+
+cat <<'CADENCE'
+
+    How often should the backup run? Android treats this as a floor rather
+    than an appointment: it batches jobs and waits for the constraints below,
+    so a run lands late whenever the phone spends the night off the charger.
+    Whatever you pick, the gap is also how much work you stand to lose.
+
+CADENCE
+
+period_hours=""
+while [ -z "$period_hours" ]; do
+  reply="$(ask 'Run every how many hours? (24 = daily, 168 = weekly)' \
+               "${previous_period_hours:-$DEFAULT_PERIOD_HOURS}")"
+  case "$reply" in
+    ''|*[!0-9]*) warn "Enter a whole number of hours." ;;
+    *) if [ "$reply" -lt 1 ]; then
+         warn "One hour is the shortest this installer sets up."
+       else
+         period_hours="$reply"
+       fi ;;
+  esac
+done
+
+# Pruning is the expensive kind of maintenance, so it wants its own, slower
+# clock: roughly every fourth backup, and never more often than weekly.
+prune_every_days=$(( period_hours * 4 / 24 ))
+[ "$prune_every_days" -lt 7 ] && prune_every_days=7
+
+cat >> "$CONFIG_DIR/env" <<ENV
+
+# --- Set from your answers at install time ---------------------------------
+# The cadence lives in Android's JobScheduler, not here: editing this line
+# changes nothing until you re-run the installer or re-register the job by
+# hand (see "Changing the schedule" in the README). It is recorded so that
+# re-running the installer keeps your answer instead of resetting to daily.
+export BACKUP_PERIOD_HOURS=$period_hours
+
+# Days between prunes. 0 never prunes from the phone — do it from a desktop
+# with tools/maintenance.sh prune instead.
+export PRUNE_EVERY_DAYS=$prune_every_days
+ENV
+ok "cadence recorded in env: every ${period_hours}h, prune every ${prune_every_days}d"
 
 job_flags=(
   --script "$CONFIG_DIR/backup.sh"
   --job-id "$JOB_ID"
-  --period-ms "$DEFAULT_PERIOD_MS"
+  --period-ms "$(( period_hours * 3600000 ))"
   --persisted true
   --network unmetered
   --battery-not-low true
@@ -275,7 +322,7 @@ fi
 termux-job-scheduler "${job_flags[@]}"
 echo
 termux-job-scheduler --pending
-ok "job $JOB_ID registered, every 24h"
+ok "job $JOB_ID registered, every ${period_hours}h"
 
 # ---------------------------------------------------------------------------
 step "Almost done — two things Android needs from you"
