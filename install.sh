@@ -325,6 +325,45 @@ termux-job-scheduler --pending
 ok "job $JOB_ID registered, every ${period_hours}h"
 
 # ---------------------------------------------------------------------------
+step "Adding home-screen shortcuts"
+
+# Termux:Widget runs whatever it finds in ~/.shortcuts (in a terminal) and
+# ~/.shortcuts/tasks (in the background). The schedule covers the routine;
+# these two exist for the moments you do not want to wait for it. They are
+# harmless files if the widget app is never installed.
+mkdir -p "$HOME/.shortcuts/tasks"
+
+cat > "$HOME/.shortcuts/tasks/backup-now.sh" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+# termux-restic-backup — manual trigger, run by Termux:Widget in the background.
+# A failure reports itself with a notification; success and skip stay silent,
+# like every other run. Details land in ~/.restic/logs/backup.log.
+command -v termux-toast >/dev/null 2>&1 && termux-toast "Backup started"
+bash "$CONFIG_DIR/backup.sh"
+EOF
+
+cat > "$HOME/.shortcuts/backup-now-log.sh" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+# termux-restic-backup — manual trigger that follows the live log.
+# Everything backup.sh writes — SKIP lines included — scrolls by here.
+bash "$CONFIG_DIR/backup.sh" &
+backup_pid=\$!
+touch "$LOG_DIR/backup.log"
+tail -n 50 -f "$LOG_DIR/backup.log" --pid="\$backup_pid" 2>/dev/null
+wait "\$backup_pid"
+echo
+read -rp '    finished — press Enter to close '
+EOF
+
+chmod +x "$HOME/.shortcuts/tasks/backup-now.sh" \
+         "$HOME/.shortcuts/backup-now-log.sh"
+ok "shortcuts written to ~/.shortcuts"
+info "To get them on the home screen, install the Termux:Widget app —"
+info "from the SAME source as Termux (F-Droid with F-Droid, GitHub with"
+info "GitHub, for the same signature reasons as Termux:API) — then long-"
+info "press the launcher, add the Termux:Widget widget and pick a shortcut."
+
+# ---------------------------------------------------------------------------
 step "Almost done — two things Android needs from you"
 
 cat <<'MANUAL'
@@ -355,6 +394,10 @@ cat <<NEXT
 
     Have restic ready in every new session:
         echo '[ -f ~/.restic/env ] && source ~/.restic/env' >> ~/.bashrc
+
+    Two shortcuts, backup-now and backup-now-log, landed in ~/.shortcuts:
+    with the Termux:Widget app you can pin one to the home screen and start
+    a backup by hand.
 
 NEXT
 
@@ -394,6 +437,7 @@ if confirm "Run the first backup now? (it can take hours)"; then
   fi
 else
   info "Start it later with:  bash $CONFIG_DIR/backup.sh"
+  info "or from the home screen with the backup-now Termux:Widget shortcut"
 fi
 
 echo

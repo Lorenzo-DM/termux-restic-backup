@@ -15,6 +15,12 @@ termux-job-scheduler --cancel --job-id "$JOB_ID" 2>/dev/null \
   || echo "    no job $JOB_ID registered"
 
 echo
+echo "==> Removing home-screen shortcuts"
+rm -f "$HOME/.shortcuts/tasks/backup-now.sh" \
+      "$HOME/.shortcuts/backup-now-log.sh"
+echo "    removed from ~/.shortcuts (other shortcuts, if any, are left alone)"
+
+echo
 echo "==> Local configuration in $CONFIG_DIR"
 echo "    This holds your repository password. Without it the remote backups"
 echo "    become permanently unreadable — make sure it is in your password"
